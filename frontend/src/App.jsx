@@ -1,16 +1,24 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
-
+import { useState } from "react";
+import Home from "./Home";
+import { ToastContainer } from "react-toastify";
+import Video from "./Video";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
     <>
-    
+      <Router>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/video" element={<Video />} />
+        </Routes>
+        <ToastContainer
+          position="top-center"
+          autoClose={3000}
+          theme="colored"
+        />
+      </Router>
     </>
-  )
+  );
 }
 
-export default App
+export default App;
