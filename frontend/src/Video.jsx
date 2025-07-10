@@ -1,167 +1,195 @@
-import React, { useEffect } from "react";
-import { useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import io from "socket.io-client";
-import { useLocation } from "react-router-dom";
-import { useNavigate } from "react-router-dom";
-import { toast } from "react-toastify";
+import Peer from "simple-peer";
+
 const socket = io("http://localhost:9000");
+
 function Video() {
   const location = useLocation();
   const navigate = useNavigate();
   const { userName, roomId } = location.state || {};
   const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const peerConnection = useRef(null);
-  const remoteSocketId = useRef(null);
-  const iceCandidatesQueue = useRef([]);
-  const isRemoteDescriptionSet = useRef(false);
+  const streamRef = useRef(null);
+  const [peers, setPeers] = useState([]);
+  const peerRef = useRef([]);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
 
   useEffect(() => {
-    if (!userName && !roomId) {
-      navigate("/");
-      return;
-    }
-    socket.emit("join-room", { roomId });
-    console.log(`user joined in room ${roomId}`);
-
-    peerConnection.current = new RTCPeerConnection({
-      iceServers: [
-        {
-          urls: "stun:stun.l.google.com:19302",
-        },
-      ],
-    });
-
-    const getUserMedia = async () => {
+    const getStream = async () => {
       try {
-        const localStream = await navigator.mediaDevices.getUserMedia({
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: true,
         });
-        localVideoRef.current.srcObject = localStream;
+        console.log("✅ Got local stream:", stream);
 
-        console.log("🎥 Got local stream:", localStream);
+        localVideoRef.current.srcObject = stream;
+        streamRef.current = stream;
 
-        localStream.getTracks().forEach((track) => {
-          peerConnection.current.addTrack(track, localStream);
+        socket.emit("join-room", { roomId, userName });
+        console.log("📤 Emitted join-room", { roomId, userName });
+
+        socket.on("all-users", (usersData) => {
+          console.log("📥 Received all-users:", usersData);
+          const peerArray = [];
+
+          usersData.forEach(({ userId, userName }) => {
+            console.log(
+              `🔧 Creating peer as initiator for: ${userName} (${userId})`
+            );
+            const peer = createPeer(userId, socket.id, stream, userName);
+
+            peerRef.current.push({ peerId: userId, peer, userName });
+            peerArray.push({ peerId: userId, peer, userName });
+          });
+
+          setPeers(peerArray);
+        });
+
+        socket.on("user-joined", ({ userId, userName: newUserName }) => {
+          console.log(`👋 User joined: ${newUserName} (${userId})`);
+
+          const peer = new Peer({
+            initiator: false,
+            trickle: false,
+            stream: streamRef.current,
+          });
+
+          peer.on("signal", (signal) => {
+            console.log("📤 Sending signal (answer) to:", userId);
+            socket.emit("signal", {
+              to: userId,
+              from: socket.id,
+              signal,
+            });
+          });
+
+          peerRef.current.push({
+            peerId: userId,
+            peer,
+            userName: newUserName,
+          });
+
+          setPeers((users) => [
+            ...users,
+            { peerId: userId, peer, userName: newUserName },
+          ]);
+        });
+
+        socket.on("signal", ({ from, signal }) => {
+          console.log("📥 Received signal from:", from);
+          const isItem = peerRef.current.find((p) => p.peerId === from);
+          if (isItem) {
+            console.log("✅ Found matching peer. Passing signal...");
+            isItem.peer.signal(signal);
+          } else {
+            console.warn("⚠️ No matching peer found for:", from);
+          }
         });
       } catch (err) {
-        toast.error("Failed to access media", err);
-      }
-    };
-    getUserMedia();
-
-    socket.on("all-users", async (users) => {
-      if (users.length > 0) {
-        const to = users[0];
-        remoteSocketId.current = to;
-
-        const offer = await peerConnection.current.createOffer();
-        await peerConnection.current.setLocalDescription(offer);
-        socket.emit("offer", { offer, to });
-      }
-    });
-
-    socket.on("offer-receive", async ({ offer, from }) => {
-      remoteSocketId.current = from;
-      await peerConnection.current.setRemoteDescription(
-        new RTCSessionDescription(offer)
-      );
-
-      isRemoteDescriptionSet.current = true;
-      while (iceCandidatesQueue.current.length) {
-        const candidate = iceCandidatesQueue.current.shift();
-        await peerConnection.current.addIceCandidate(candidate);
-      }
-
-      const answer = await peerConnection.current.createAnswer();
-      await peerConnection.current.setLocalDescription(answer);
-
-      socket.emit("answer", { answer, to: from });
-    });
-
-    socket.on("answer-receive", async ({ answer }) => {
-      await peerConnection.current.setRemoteDescription(
-        new RTCSessionDescription(answer)
-      );
-
-      while (iceCandidatesQueue.current.length) {
-        const candidate = iceCandidatesQueue.current.shift();
-        await peerConnection.current.addIceCandidate(candidate);
-      }
-    });
-
-    peerConnection.current.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit("ice-candidate", {
-          candidate: event.candidate,
-          to: remoteSocketId.current,
-        });
+        console.error("❌ Error in getting stream", err);
       }
     };
 
-    socket.on("ice-candidate", async ({ candidate }) => {
-      const iceCandidate = new RTCIceCandidate(candidate);
-      if (isRemoteDescriptionSet.current) {
-        try {
-          await peerConnection.current.addIceCandidate(iceCandidate);
-          console.log(" ICE candidate added");
-        } catch (err) {
-          console.error(" ICE add failed", err);
-        }
-      } else {
-        console.log(" Queued ICE candidate");
-        iceCandidatesQueue.current.push(iceCandidate);
-      }
-    });
-
-    peerConnection.current.ontrack = (event) => {
-      console.log("data is coming on track");
-      console.log("📺 Remote stream received:", event.streams[0]);
-
-      remoteVideoRef.current.srcObject = event.streams[0];
-    };
-
+    getStream();
     return () => {
-      if (peerConnection.current) {
-        peerConnection.current.close();
-      }
+      console.log("🔌 Disconnecting socket...");
       socket.disconnect();
     };
-  }, [userName, roomId]);
+  }, []);
+
+  function createPeer(otherUserID, userId, stream, otherUserName) {
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream,
+    });
+
+    peer.on("signal", (signal) => {
+      console.log("📤 Sending signal (offer) to:", otherUserID);
+      socket.emit("signal", { to: otherUserID, from: userId, signal });
+    });
+
+    return peer;
+  }
+
+  const toggleMic = () => {
+    const audioTrack = streamRef.current?.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      setMicOn(audioTrack.enabled);
+    }
+  };
+
+  const toggleCam = () => {
+    const videoTrack = streamRef.current?.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setCamOn(videoTrack.enabled);
+    }
+  };
 
   return (
-    <>
-      <div style={{ textAlign: "center", marginTop: "30px" }}>
-        <h2>Room: {roomId}</h2>
-        <div style={{ display: "flex", justifyContent: "center", gap: "30px" }}>
+    <div style={{ padding: 20 }}>
+      <h2>Room: {roomId}</h2>
+      <h4>{userName} (You)</h4>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
+        <div style={{ textAlign: "center" }}>
           <video
             ref={localVideoRef}
             autoPlay
             muted
+            playsInline
             style={{
-              marginTop: 80,
-              width: 300,
-              height: 300,
-              border: "2px solid black",
+              width: "320px",
+              height: "240px",
+              border: "3px solid green",
+              borderRadius: "12px",
+              backgroundColor: "black",
             }}
           />
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            style={{
-              marginTop: 80,
-              width: 300,
-              height: 300,
-              border: "2px solid black",
-            }}
-          />
+          <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
+            <button  onClick={toggleMic} style={{borderRadius:"6px"}}>
+              {micOn ? "Mute Mic " : "Unmute Mic "}
+            </button>
+            <button onClick={toggleCam} style={{borderRadius:"6px"}}>
+              {camOn ? "Turn Off Camera " : "Turn On Camera "}
+            </button>
+          </div>
         </div>
-        <div style={{ marginTop: "20px" }}>
-          {/* <button onClick={leaveCall}>❌ Leave Call</button> */}
-        </div>
+
+        {peers.map(({ peer, peerId, userName }) => (
+          <RemoteVideo key={peerId} peer={peer} userName={userName} />
+        ))}
       </div>
-    </>
+    </div>
+  );
+}
+
+function RemoteVideo({ peer, userName }) {
+  const remoteVideo = useRef();
+
+  useEffect(() => {
+    peer.on("stream", (stream) => {
+      console.log("📽️ Remote stream received from:", userName, stream);
+      if (remoteVideo.current) {
+        remoteVideo.current.srcObject = stream;
+      }
+    });
+  }, [peer]);
+
+  return (
+    <div style={{ textAlign: "center" }}>
+      <h4>{userName}</h4>
+      <video
+        ref={remoteVideo}
+        autoPlay
+        playsInline
+        style={{ width: 300, border: "2px solid blue", borderRadius: 10 }}
+      />
+    </div>
   );
 }
 

@@ -16,39 +16,36 @@ let roomUsers = {};
 
 io.on("connection", (socket) => {
   console.log("User connected", socket.id);
-  socket.on("join-room", ({ roomId }) => {
+  socket.on("join-room", ({ roomId, userName }) => {
     socket.join(roomId);
+    console.log("user joined");
+    socket.data.userName = userName;
     if (!roomUsers[roomId]) roomUsers[roomId] = [];
     roomUsers[roomId].push(socket.id);
     console.log(`${socket.id} joined the room ${roomId}`);
-    
+
     const otherUsers = roomUsers[roomId].filter((id) => id !== socket.id);
-    socket.emit("all-users", otherUsers);
-  });
+    console.log(otherUsers);
 
-  socket.on("offer", ({ offer, to }) => {
-    io.to(to).emit("offer-receive", { offer, from: socket.id });
-  });
+    const usersData = otherUsers.map((id) => ({
+      userId: id,
+      userName: io.sockets.sockets.get(id)?.data?.userName || "User",
+    }));
 
-  socket.on("answer", ({ answer, to }) => {
-    socket.to(to).emit("answer-receive", { answer, from: socket.id });
-  });
+    socket.emit("all-users", usersData);
 
-  socket.on("ice-candidate", ({ candidate, to }) => {
-    socket.to(to).emit("ice-candidate", { candidate, from: socket.id });
+    socket.to(roomId).emit("user-joined", {
+      userId: socket.id,
+      userName,
+    });
+
+    socket.on("signal", ({ to, from, signal }) => {
+      io.to(to).emit("signal", { from, signal });
+    });
   });
 
   socket.on("disconnect", () => {
-    for (const roomId in roomUsers) {
-      roomUsers[roomId] = roomUsers[roomId].filter((id) => id !== socket.id);
-
-      
-      if (roomUsers[roomId].length === 0) {
-        delete roomUsers[roomId];
-      }
-    }
-    console.log("User disconnected", socket.id);
-    console.log("User is disconected", socket.id);
+    //socket.to(roomId).emit("user-left",{userId:socket.id});
   });
 });
 
