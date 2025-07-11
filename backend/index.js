@@ -18,8 +18,10 @@ io.on("connection", (socket) => {
   console.log("User connected", socket.id);
   socket.on("join-room", ({ roomId, userName }) => {
     socket.join(roomId);
+    console.log(roomId);
     console.log("user joined");
     socket.data.userName = userName;
+    socket.data.roomId = roomId;
     if (!roomUsers[roomId]) roomUsers[roomId] = [];
     roomUsers[roomId].push(socket.id);
     console.log(`${socket.id} joined the room ${roomId}`);
@@ -45,7 +47,16 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    //socket.to(roomId).emit("user-left",{userId:socket.id});
+    const roomId = socket.data.roomId; // ✅ retrieve safely
+    if (roomId) {
+      socket.to(roomId).emit("user-left", { userId: socket.id });
+
+      // ✅ Remove user from roomUsers list
+      roomUsers[roomId] = roomUsers[roomId]?.filter((id) => id !== socket.id);
+      if (roomUsers[roomId]?.length === 0) {
+        delete roomUsers[roomId];
+      }
+    }
   });
 });
 

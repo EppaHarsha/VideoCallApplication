@@ -88,6 +88,12 @@ function Video() {
             console.warn("⚠️ No matching peer found for:", from);
           }
         });
+
+        socket.on("user-left", ({ userId }) => {
+          peerRef.current = peerRef.current.filter((p) => p.peerId !== userId);
+          setPeers((users) => users.filter((p) => p.peerId !== userId));
+          console.log("userleft");
+        });
       } catch (err) {
         console.error("❌ Error in getting stream", err);
       }
@@ -151,11 +157,39 @@ function Video() {
             }}
           />
           <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
-            <button  onClick={toggleMic} style={{borderRadius:"6px"}}>
-              {micOn ? "Mute Mic " : "Unmute Mic "}
+            <button
+              onClick={toggleMic}
+              style={{
+                backgroundColor: micOn ? "#2f3e46" : "#43aa8b",
+                border: "2px solid white",
+                borderRadius: "6px",
+                color: "white",
+                fontWeight: "bold",
+                padding: "8px 10px",
+                cursor: "pointer",
+                transition: "all 0.3s ease",
+                boxShadow: "0 4px 10px rgba(0, 0, 0, 0.2)",
+              }}
+            >
+              {micOn ? "🎤 Mute Mic" : "🔇 Unmute Mic"}
             </button>
-            <button onClick={toggleCam} style={{borderRadius:"6px"}}>
-              {camOn ? "Turn Off Camera " : "Turn On Camera "}
+
+            <button
+              onClick={toggleCam}
+              style={{
+                backgroundColor: camOn ? "#2f3e46" : "#577590", 
+                color: "white",
+                border: "2px solid white",
+                borderRadius: "6px",
+                padding: "8px 10px",
+                fontWeight: "600",
+                fontSize: "16px",
+                cursor: "pointer",
+                transition: "all 0.3s ease",
+                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+              }}
+            >
+              {camOn ? "Off Camera" : "🎥On Camera"}
             </button>
           </div>
         </div>
@@ -181,7 +215,7 @@ function RemoteVideo({ peer, userName }) {
   }, [peer]);
 
   return (
-    <div style={{ textAlign: "center" }}>
+    <div style={{ textAlign: "center", marginTop: "-50px" }}>
       <h4>{userName}</h4>
       <video
         ref={remoteVideo}

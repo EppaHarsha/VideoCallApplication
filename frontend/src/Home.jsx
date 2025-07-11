@@ -35,9 +35,9 @@ function Home() {
         placeholder="Enter room id..."
         value={roomId}
         onChange={(e) => setRoomId(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && joinVideo()}
+        onKeyDown={(e) => e.key === "Enter" && joinVideo()}
       />
-      <button className="btn" onClick={joinVideo}>
+      <button className="btn-hme" onClick={joinVideo}>
         Join
       </button>
     </div>
